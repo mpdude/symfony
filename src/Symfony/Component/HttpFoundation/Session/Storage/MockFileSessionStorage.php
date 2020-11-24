@@ -104,7 +104,7 @@ class MockFileSessionStorage extends MockArraySessionStorage
 
         try {
             if ($data) {
-                file_put_contents($this->getFilePath(), serialize($data));
+                file_put_contents($this->getFilePath(), serialize($data), LOCK_EX);
             } else {
                 $this->destroy();
             }
