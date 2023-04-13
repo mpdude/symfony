@@ -34,6 +34,7 @@ use Symfony\Component\Serializer\NameConverter\MetadataAwareNameConverter;
 use Symfony\Component\Serializer\Normalizer\ArrayDenormalizer;
 use Symfony\Component\Serializer\Normalizer\BackedEnumNormalizer;
 use Symfony\Component\Serializer\Normalizer\ConstraintViolationListNormalizer;
+use Symfony\Component\Serializer\Normalizer\CustomNormalizer;
 use Symfony\Component\Serializer\Normalizer\DataUriNormalizer;
 use Symfony\Component\Serializer\Normalizer\DateIntervalNormalizer;
 use Symfony\Component\Serializer\Normalizer\DateTimeNormalizer;
@@ -77,6 +78,9 @@ return static function (ContainerConfigurator $container) {
         ->alias(ClassDiscriminatorResolverInterface::class, 'serializer.mapping.class_discriminator_resolver')
 
         // Normalizer
+        ->set('serializer.normalizer.custom', CustomNormalizer::class)
+            ->tag('serializer.normalizer', ['priority' => -910])
+
         ->set('serializer.normalizer.constraint_violation_list', ConstraintViolationListNormalizer::class)
             ->args([1 => service('serializer.name_converter.metadata_aware')])
             ->autowire(true)
