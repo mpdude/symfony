@@ -17,6 +17,7 @@ use Twig\Node\Expression\Binary\ConcatBinary;
 use Twig\Node\Expression\ConstantExpression;
 use Twig\Node\Expression\FilterExpression;
 use Twig\Node\Expression\FunctionExpression;
+use Twig\Node\ModuleNode;
 use Twig\Node\Node;
 use Twig\NodeVisitor\NodeVisitorInterface;
 
@@ -31,17 +32,20 @@ final class TranslationNodeVisitor implements NodeVisitorInterface
 
     private bool $enabled = false;
     private array $messages = [];
+    private array $nodeMessageIndex = [];
 
     public function enable(): void
     {
         $this->enabled = true;
         $this->messages = [];
+        $this->nodeMessageIndex = [];
     }
 
     public function disable(): void
     {
         $this->enabled = false;
         $this->messages = [];
+        $this->nodeMessageIndex = [];
     }
 
     public function getMessages(): array
@@ -51,17 +55,52 @@ final class TranslationNodeVisitor implements NodeVisitorInterface
 
     public function enterNode(Node $node, Environment $env): Node
     {
-        if (!$this->enabled) {
-            return $node;
+        if ($this->enabled) {
+            $this->extractFromNode($node);
         }
 
+        return $node;
+    }
+
+    public function leaveNode(Node $node, Environment $env): ?Node
+    {
+        if ($this->enabled && $node instanceof ModuleNode) {
+            $this->extractFromEmbeddedTemplates($node->getAttribute('embedded_templates'));
+        }
+
+        return $node;
+    }
+
+    private function extractFromEmbeddedTemplates(Node $embeddedTemplates): void
+    {
+        foreach ($embeddedTemplates as $embeddedModule) {
+            $this->extractFromTree($embeddedModule);
+
+            $nested = $embeddedModule->getAttribute('embedded_templates');
+            if ($nested instanceof Node) {
+                $this->extractFromEmbeddedTemplates($nested);
+            }
+        }
+    }
+
+    private function extractFromTree(Node $node): void
+    {
+        $this->extractFromNode($node);
+
+        foreach ($node as $child) {
+            $this->extractFromTree($child);
+        }
+    }
+
+    private function extractFromNode(Node $node): void
+    {
         if (
             $node instanceof FilterExpression
             && 'trans' === ($node->hasAttribute('twig_callable') ? $node->getAttribute('twig_callable')->getName() : $node->getNode('filter')->getAttribute('value'))
             && $node->getNode('node') instanceof ConstantExpression
         ) {
             // extract constant nodes with a trans filter
-            $this->messages[] = [
+            $message = [
                 $node->getNode('node')->getAttribute('value'),
                 $this->getReadDomainFromArguments($node->getNode('arguments'), 1),
             ];
@@ -71,15 +110,17 @@ final class TranslationNodeVisitor implements NodeVisitorInterface
         ) {
             $nodeArguments = $node->getNode('arguments');
 
-            if ($nodeArguments->getIterator()->current() instanceof ConstantExpression) {
-                $this->messages[] = [
-                    $this->getReadMessageFromArguments($nodeArguments, 0),
-                    $this->getReadDomainFromArguments($nodeArguments, 2),
-                ];
+            if (!$nodeArguments->getIterator()->current() instanceof ConstantExpression) {
+                return;
             }
+
+            $message = [
+                $this->getReadMessageFromArguments($nodeArguments, 0),
+                $this->getReadDomainFromArguments($nodeArguments, 2),
+            ];
         } elseif ($node instanceof TransNode) {
             // extract trans nodes
-            $this->messages[] = [
+            $message = [
                 $node->getNode('body')->getAttribute('data'),
                 $node->hasNode('domain') ? $this->getReadDomainFromNode($node->getNode('domain')) : null,
             ];
@@ -87,20 +128,26 @@ final class TranslationNodeVisitor implements NodeVisitorInterface
             $node instanceof FilterExpression
             && 'trans' === ($node->hasAttribute('twig_callable') ? $node->getAttribute('twig_callable')->getName() : $node->getNode('filter')->getAttribute('value'))
             && $node->getNode('node') instanceof ConcatBinary
-            && $message = $this->getConcatValueFromNode($node->getNode('node'), null)
+            && $value = $this->getConcatValueFromNode($node->getNode('node'), null)
         ) {
-            $this->messages[] = [
-                $message,
+            $message = [
+                $value,
                 $this->getReadDomainFromArguments($node->getNode('arguments'), 1),
             ];
+        } else {
+            return;
         }
 
-        return $node;
-    }
-
-    public function leaveNode(Node $node, Environment $env): ?Node
-    {
-        return $node;
+        // A node may be visited twice: once during an inner traversal (embedded
+        // template, domain not yet injected) and again during the outer leaveNode
+        // post-processing (domain already injected). The second visit wins.
+        $nodeId = spl_object_id($node);
+        if (isset($this->nodeMessageIndex[$nodeId])) {
+            $this->messages[$this->nodeMessageIndex[$nodeId]] = $message;
+        } else {
+            $this->nodeMessageIndex[$nodeId] = count($this->messages);
+            $this->messages[] = $message;
+        }
     }
 
     public function getPriority(): int
