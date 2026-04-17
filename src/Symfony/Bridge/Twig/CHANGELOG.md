@@ -6,6 +6,7 @@ CHANGELOG
 
  * Add `form_flow_*` Twig form helper functions to access values from `FormFlowCursor`
  * Add daisyUI 5 form layout
+ * Add `file_scope` flag to the `trans_default_domain` tag to make it span entire files
 
 8.0
 ---
