@@ -12,6 +12,8 @@
 namespace Symfony\Bridge\Twig\TokenParser;
 
 use Symfony\Bridge\Twig\Node\TransDefaultDomainNode;
+use Twig\Error\SyntaxError;
+use Twig\Node\Expression\ConstantExpression;
 use Twig\Node\Node;
 use Twig\Token;
 use Twig\TokenParser\AbstractTokenParser;
@@ -25,11 +27,20 @@ final class TransDefaultDomainTokenParser extends AbstractTokenParser
 {
     public function parse(Token $token): Node
     {
+        $stream = $this->parser->getStream();
         $expr = $this->parser->parseExpression();
 
-        $this->parser->getStream()->expect(Token::BLOCK_END_TYPE);
+        $fileScope = false;
+        if ($stream->nextIf(Token::NAME_TYPE, 'file')) {
+            if (!$expr instanceof ConstantExpression) {
+                throw new SyntaxError('The "file" scope modifier requires a static string domain.', $token->getLine(), $stream->getSourceContext());
+            }
+            $fileScope = true;
+        }
 
-        return new TransDefaultDomainNode($expr, $token->getLine());
+        $stream->expect(Token::BLOCK_END_TYPE);
+
+        return new TransDefaultDomainNode($expr, $token->getLine(), $fileScope);
     }
 
     public function getTag(): string

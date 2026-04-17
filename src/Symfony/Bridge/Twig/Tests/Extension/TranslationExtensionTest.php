@@ -268,6 +268,76 @@ class TranslationExtensionTest extends TestCase
         $this->assertEquals('foo (custom)foo (foo)foo (custom)', trim($template->render(['foo_domain' => 'foo', 'custom_domain' => 'custom'])));
     }
 
+    public function testFileScopeDefaultTranslationDomain()
+    {
+        $templates = [
+            'index' => '
+                {%- trans_default_domain "foo" file %}
+                {{- "key"|trans }}
+                {%- embed "embedded.html.twig" %}
+                    {%- block content %}{{- "key"|trans }}{% endblock %}
+                {%- endembed %}
+            ',
+
+            // trans call here is in a different file — must not be affected by index's file scope
+            'embedded.html.twig' => '
+                {{- "key"|trans }}
+                {%- block content "" %}
+            ',
+        ];
+
+        $translator = new Translator('en');
+        $translator->addLoader('array', new ArrayLoader());
+        $translator->addResource('array', ['key' => 'key (messages)'], 'en');
+        $translator->addResource('array', ['key' => 'key (foo)'], 'en', 'foo');
+
+        $template = $this->getTemplate($templates, $translator);
+
+        // index: key (foo)                                — outer template, file scope applies
+        // embedded.html.twig: key (messages)             — different file, file scope must not apply
+        // embed block override from index: key (foo)     — defined in index, file scope applies
+        $this->assertEquals('key (foo)key (messages)key (foo)', trim($template->render([])));
+    }
+
+    public function testFileScopeDefaultTranslationDomainWithNestedEmbed()
+    {
+        $templates = [
+            'index' => '
+                {%- trans_default_domain "foo" file %}
+                {%- embed "outer_embed.html.twig" %}
+                    {%- block content %}
+                        {{- "key"|trans }}
+                        {%- embed "inner_embed.html.twig" %}
+                            {%- block inner %}{{- "key"|trans }}{% endblock %}
+                        {%- endembed %}
+                    {% endblock %}
+                {%- endembed %}
+            ',
+
+            'outer_embed.html.twig' => '
+                {%- block content "" %}
+            ',
+
+            // trans call here is in a different file — must not be affected by index's file scope
+            'inner_embed.html.twig' => '
+                {{- "key"|trans }}
+                {%- block inner "" %}
+            ',
+        ];
+
+        $translator = new Translator('en');
+        $translator->addLoader('array', new ArrayLoader());
+        $translator->addResource('array', ['key' => 'key (messages)'], 'en');
+        $translator->addResource('array', ['key' => 'key (foo)'], 'en', 'foo');
+
+        $template = $this->getTemplate($templates, $translator);
+
+        // outer embed block override from index: key (foo)     — defined in index, file scope applies
+        // inner_embed.html.twig: key (messages)                — different file, file scope must not apply
+        // inner embed block override from index: key (foo)     — defined in index, file scope applies
+        $this->assertEquals('key (foo)key (messages)key (foo)', trim($template->render([])));
+    }
+
     private function getTemplate($template, ?TranslatorInterface $translator = null): TemplateWrapper
     {
         $translator ??= new Translator('en');

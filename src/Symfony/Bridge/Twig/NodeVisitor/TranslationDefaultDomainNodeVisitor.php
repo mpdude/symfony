@@ -33,6 +33,7 @@ use Twig\NodeVisitor\NodeVisitorInterface;
 final class TranslationDefaultDomainNodeVisitor implements NodeVisitorInterface
 {
     private Scope $scope;
+    private ?string $fileScopeDomain = null;
 
     public function __construct()
     {
@@ -45,7 +46,18 @@ final class TranslationDefaultDomainNodeVisitor implements NodeVisitorInterface
             $this->scope = $this->scope->enter();
         }
 
+        if ($node instanceof ModuleNode && null === $node->getAttribute('index')) {
+            // Reset file-scope domain at the start of each top-level template compilation.
+            $this->fileScopeDomain = null;
+        }
+
         if ($node instanceof TransDefaultDomainNode) {
+            if ($node->getAttribute('file_scope')) {
+                // Save value of the file-scoped default domain.
+                // A static string value is guaranteed by the token parser.
+                $this->fileScopeDomain = $node->getNode('expr')->getAttribute('value');
+            }
+
             if ($node->getNode('expr') instanceof ConstantExpression) {
                 $this->scope->set('domain', $node->getNode('expr'));
 
@@ -68,33 +80,41 @@ final class TranslationDefaultDomainNodeVisitor implements NodeVisitorInterface
             return $node;
         }
 
-        if ($node instanceof FilterExpression && 'trans' === ($node->hasAttribute('twig_callable') ? $node->getAttribute('twig_callable')->getName() : $node->getNode('filter')->getAttribute('value'))) {
-            $arguments = $node->getNode('arguments');
-
-            if ($arguments instanceof EmptyNode) {
-                $arguments = new Nodes();
-                $node->setNode('arguments', $arguments);
-            }
-
-            if ($this->isNamedArguments($arguments)) {
-                if (!$arguments->hasNode('domain') && !$arguments->hasNode(1)) {
-                    $arguments->setNode('domain', $this->scope->get('domain'));
-                }
-            } elseif (!$arguments->hasNode(1)) {
-                if (!$arguments->hasNode(0)) {
-                    $arguments->setNode(0, new ArrayExpression([], $node->getTemplateLine()));
-                }
-
-                $arguments->setNode(1, $this->scope->get('domain'));
-            }
-        } elseif ($node instanceof TransNode) {
-            if (!$node->hasNode('domain')) {
-                $node->setNode('domain', $this->scope->get('domain'));
-            }
-        }
+        $this->injectDomainExprIntoTransNode($node, $this->scope->get('domain'));
 
         return $node;
     }
+
+    /**
+     * Injects $domainExpr as the translation domain into $node if $node is a trans
+     * call without an already-set domain.
+     */
+    private function injectDomainExprIntoTransNode(Node $node, Node $domainExpr): void
+        {
+            if ($node instanceof FilterExpression && 'trans' === ($node->hasAttribute('twig_callable') ? $node->getAttribute('twig_callable')->getName() : $node->getNode('filter')->getAttribute('value'))) {
+                $arguments = $node->getNode('arguments');
+
+                if ($arguments instanceof EmptyNode) {
+                    $arguments = new Nodes();
+                    $node->setNode('arguments', $arguments);
+                }
+
+                if ($this->isNamedArguments($arguments)) {
+                    if (!$arguments->hasNode('domain') && !$arguments->hasNode(1)) {
+                        $arguments->setNode('domain', $domainExpr);
+                    }
+                } elseif (!$arguments->hasNode(1)) {
+                    if (!$arguments->hasNode(0)) {
+                        $arguments->setNode(0, new ArrayExpression([], $node->getTemplateLine()));
+                    }
+                    $arguments->setNode(1, $domainExpr);
+                }
+            } elseif ($node instanceof TransNode) {
+                if (!$node->hasNode('domain')) {
+                    $node->setNode('domain', $domainExpr);
+                }
+            }
+        }
 
     public function leaveNode(Node $node, Environment $env): ?Node
     {
@@ -103,10 +123,46 @@ final class TranslationDefaultDomainNodeVisitor implements NodeVisitorInterface
         }
 
         if ($node instanceof BlockNode || $node instanceof ModuleNode) {
+            // When we leave an outmost ModuleNode (index = null) and have a file-scoped default domain,
+            // run post-processing of all inner (embedded) ModuleNodes and add the default domain value.
+            // Note: leaveNode is also called for embedded ModuleNodes (index != null) during their own
+            // inner parse traversal — the index check prevents running the injection for those.
+            if ($node instanceof ModuleNode
+                && null === $node->getAttribute('index')
+                && null !== $this->fileScopeDomain
+            ) {
+                $this->injectFileScopeDomain(
+                    $node->getAttribute('embedded_templates'),
+                    $this->fileScopeDomain
+                );
+            }
+
             $this->scope = $this->scope->leave();
         }
 
         return $node;
+    }
+
+    private function injectFileScopeDomain(Node $embeddedTemplates, string $domain): void
+    {
+        foreach ($embeddedTemplates as $embeddedModule) {
+            $this->injectDomainIntoNode($embeddedModule, $domain);
+
+            // Recurse into nested embedded templates (embeds within embeds).
+            $nested = $embeddedModule->getAttribute('embedded_templates');
+            if ($nested instanceof Node) {
+                $this->injectFileScopeDomain($nested, $domain);
+            }
+        }
+    }
+
+    private function injectDomainIntoNode(Node $node, string $domain): void
+    {
+        $this->injectDomainExprIntoTransNode($node, new ConstantExpression($domain, $node->getTemplateLine()));
+
+        foreach ($node as $child) {
+            $this->injectDomainIntoNode($child, $domain);
+        }
     }
 
     public function getPriority(): int
