@@ -12,6 +12,7 @@
 namespace Symfony\Bridge\Twig\Extension;
 
 use Symfony\Bridge\Twig\NodeVisitor\TranslationDefaultDomainNodeVisitor;
+use Symfony\Bridge\Twig\NodeVisitor\TranslationFileScopeScannerNodeVisitor;
 use Symfony\Bridge\Twig\NodeVisitor\TranslationNodeVisitor;
 use Symfony\Bridge\Twig\TokenParser\TransDefaultDomainTokenParser;
 use Symfony\Bridge\Twig\TokenParser\TransTokenParser;
@@ -82,7 +83,7 @@ final class TranslationExtension extends AbstractExtension
 
     public function getNodeVisitors(): array
     {
-        return [$this->getTranslationNodeVisitor(), new TranslationDefaultDomainNodeVisitor()];
+        return [$this->getTranslationNodeVisitor(), new TranslationFileScopeScannerNodeVisitor(), new TranslationDefaultDomainNodeVisitor()];
     }
 
     public function getTranslationNodeVisitor(): TranslationNodeVisitor

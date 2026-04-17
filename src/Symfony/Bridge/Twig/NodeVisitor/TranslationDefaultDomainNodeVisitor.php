@@ -33,6 +33,7 @@ use Twig\NodeVisitor\NodeVisitorInterface;
 final class TranslationDefaultDomainNodeVisitor implements NodeVisitorInterface
 {
     private Scope $scope;
+    private ?string $fileScopeDomain = null;
 
     public function __construct()
     {
@@ -41,25 +42,17 @@ final class TranslationDefaultDomainNodeVisitor implements NodeVisitorInterface
 
     public function enterNode(Node $node, Environment $env): Node
     {
-        if ($node instanceof ModuleNode) {
+        if ($node instanceof BlockNode || $node instanceof ModuleNode) {
             $this->scope = $this->scope->enter();
         }
 
-        // Inherit the file-scoped domain when entering new blocks
-        if ($node instanceof BlockNode) {
-            $inheritedFileScopeDomain = $this->scope->has('file_scope_domain') ? $this->scope->get('file_scope_domain') : null;
-            $this->scope = $this->scope->enter();
-            if (null !== $inheritedFileScopeDomain) {
-                $this->scope->set('file_scope_domain', $inheritedFileScopeDomain);
-            }
+        if ($node instanceof ModuleNode) {
+            $this->fileScopeDomain = $node->hasAttribute('file_scope_domain')
+                ? $node->getAttribute('file_scope_domain')
+                : null;
         }
 
         if ($node instanceof TransDefaultDomainNode) {
-            if ($node->getAttribute('file_scope')) {
-                // A static string value is guaranteed by the token parser.
-                $this->scope->set('file_scope_domain', $node->getNode('expr')->getAttribute('value'));
-            }
-
             if ($node->getNode('expr') instanceof ConstantExpression) {
                 $this->scope->set('domain', $node->getNode('expr'));
 
@@ -78,19 +71,15 @@ final class TranslationDefaultDomainNodeVisitor implements NodeVisitorInterface
             return new SetNode(false, new Nodes([$name]), new Nodes([$node->getNode('expr')]), $node->getTemplateLine());
         }
 
-        if (!$this->scope->has('domain')) {
-            return $node;
+        if ($this->scope->has('domain')) {
+            $this->injectDomainExprIntoTransNode($node, $this->scope->get('domain'));
+        } elseif (null !== $this->fileScopeDomain) {
+            $this->injectDomainExprIntoTransNode($node, new ConstantExpression($this->fileScopeDomain, $node->getTemplateLine()));
         }
-
-        $this->injectDomainExprIntoTransNode($node, $this->scope->get('domain'));
 
         return $node;
     }
 
-    /**
-     * Injects $domainExpr as the translation domain into $node if $node is a trans
-     * call without an already-set domain.
-     */
     private function injectDomainExprIntoTransNode(Node $node, Node $domainExpr): void
     {
         if ($node instanceof FilterExpression && 'trans' === ($node->hasAttribute('twig_callable') ? $node->getAttribute('twig_callable')->getName() : $node->getNode('filter')->getAttribute('value'))) {
@@ -124,13 +113,10 @@ final class TranslationDefaultDomainNodeVisitor implements NodeVisitorInterface
             return null;
         }
 
-        // If a file-scoped domain was declared, post-process all embedded templates
-        // (which were already traversed during their own inner parse, before this
-        // module's NodeVisitor pass ran).
-        if ($node instanceof ModuleNode && $this->scope->has('file_scope_domain')) {
+        if ($node instanceof ModuleNode && null !== $this->fileScopeDomain) {
             $this->injectFileScopeDomain(
                 $node->getAttribute('embedded_templates'),
-                $this->scope->get('file_scope_domain'),
+                $this->fileScopeDomain,
             );
         }
 
@@ -146,7 +132,6 @@ final class TranslationDefaultDomainNodeVisitor implements NodeVisitorInterface
         foreach ($embeddedTemplates as $embeddedModule) {
             $this->injectDomainIntoNode($embeddedModule, $domain);
 
-            // Recurse into nested embedded templates (embeds within embeds).
             $nested = $embeddedModule->getAttribute('embedded_templates');
             if ($nested instanceof Node) {
                 $this->injectFileScopeDomain($nested, $domain);
