@@ -31,9 +31,9 @@ final class TransDefaultDomainTokenParser extends AbstractTokenParser
         $expr = $this->parser->parseExpression();
 
         $fileScope = false;
-        if ($stream->nextIf(Token::NAME_TYPE, 'file')) {
+        if ($stream->nextIf(Token::NAME_TYPE, 'file_scope')) {
             if (!$expr instanceof ConstantExpression) {
-                throw new SyntaxError('The "file" scope modifier requires a static string domain.', $token->getLine(), $stream->getSourceContext());
+                throw new SyntaxError('The "file_scope" modifier requires the domain to be a constant expression.', $token->getLine(), $stream->getSourceContext());
             }
             $fileScope = true;
         }

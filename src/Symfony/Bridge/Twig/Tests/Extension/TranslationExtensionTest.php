@@ -272,7 +272,7 @@ class TranslationExtensionTest extends TestCase
     {
         $templates = [
             'index' => '
-                {%- trans_default_domain "foo" file %}
+                {%- trans_default_domain "foo" file_scope %}
                 {{- "key"|trans }}
                 {%- embed "embedded.html.twig" %}
                     {%- block content %}{{- "key"|trans }}{% endblock %}
@@ -303,7 +303,7 @@ class TranslationExtensionTest extends TestCase
     {
         $templates = [
             'index' => '
-                {%- trans_default_domain "foo" file %}
+                {%- trans_default_domain "foo" file_scope %}
                 {%- embed "outer_embed.html.twig" %}
                     {%- block content %}
                         {{- "key"|trans }}

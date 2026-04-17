@@ -33,7 +33,6 @@ use Twig\NodeVisitor\NodeVisitorInterface;
 final class TranslationDefaultDomainNodeVisitor implements NodeVisitorInterface
 {
     private Scope $scope;
-    private ?string $fileScopeDomain = null;
 
     public function __construct()
     {
@@ -42,20 +41,23 @@ final class TranslationDefaultDomainNodeVisitor implements NodeVisitorInterface
 
     public function enterNode(Node $node, Environment $env): Node
     {
-        if ($node instanceof BlockNode || $node instanceof ModuleNode) {
+        if ($node instanceof ModuleNode) {
             $this->scope = $this->scope->enter();
         }
 
-        if ($node instanceof ModuleNode && null === $node->getAttribute('index')) {
-            // Reset file-scope domain at the start of each top-level template compilation.
-            $this->fileScopeDomain = null;
+        // Inherit the file-scoped domain when entering new blocks
+        if ($node instanceof BlockNode) {
+            $inheritedFileScopeDomain = $this->scope->has('file_scope_domain') ? $this->scope->get('file_scope_domain') : null;
+            $this->scope = $this->scope->enter();
+            if (null !== $inheritedFileScopeDomain) {
+                $this->scope->set('file_scope_domain', $inheritedFileScopeDomain);
+            }
         }
 
         if ($node instanceof TransDefaultDomainNode) {
             if ($node->getAttribute('file_scope')) {
-                // Save value of the file-scoped default domain.
                 // A static string value is guaranteed by the token parser.
-                $this->fileScopeDomain = $node->getNode('expr')->getAttribute('value');
+                $this->scope->set('file_scope_domain', $node->getNode('expr')->getAttribute('value'));
             }
 
             if ($node->getNode('expr') instanceof ConstantExpression) {
@@ -122,21 +124,17 @@ final class TranslationDefaultDomainNodeVisitor implements NodeVisitorInterface
             return null;
         }
 
-        if ($node instanceof BlockNode || $node instanceof ModuleNode) {
-            // When we leave an outmost ModuleNode (index = null) and have a file-scoped default domain,
-            // run post-processing of all inner (embedded) ModuleNodes and add the default domain value.
-            // Note: leaveNode is also called for embedded ModuleNodes (index != null) during their own
-            // inner parse traversal — the index check prevents running the injection for those.
-            if ($node instanceof ModuleNode
-                && null === $node->getAttribute('index')
-                && null !== $this->fileScopeDomain
-            ) {
-                $this->injectFileScopeDomain(
-                    $node->getAttribute('embedded_templates'),
-                    $this->fileScopeDomain
-                );
-            }
+        // If a file-scoped domain was declared, post-process all embedded templates
+        // (which were already traversed during their own inner parse, before this
+        // module's NodeVisitor pass ran).
+        if ($node instanceof ModuleNode && $this->scope->has('file_scope_domain')) {
+            $this->injectFileScopeDomain(
+                $node->getAttribute('embedded_templates'),
+                $this->scope->get('file_scope_domain'),
+            );
+        }
 
+        if ($node instanceof BlockNode || $node instanceof ModuleNode) {
             $this->scope = $this->scope->leave();
         }
 
