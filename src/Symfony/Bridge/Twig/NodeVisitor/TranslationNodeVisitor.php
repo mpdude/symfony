@@ -145,7 +145,7 @@ final class TranslationNodeVisitor implements NodeVisitorInterface
         if (isset($this->nodeMessageIndex[$nodeId])) {
             $this->messages[$this->nodeMessageIndex[$nodeId]] = $message;
         } else {
-            $this->nodeMessageIndex[$nodeId] = count($this->messages);
+            $this->nodeMessageIndex[$nodeId] = \count($this->messages);
             $this->messages[] = $message;
         }
     }

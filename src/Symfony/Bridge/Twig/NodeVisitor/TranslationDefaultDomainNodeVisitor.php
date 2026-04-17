@@ -92,31 +92,31 @@ final class TranslationDefaultDomainNodeVisitor implements NodeVisitorInterface
      * call without an already-set domain.
      */
     private function injectDomainExprIntoTransNode(Node $node, Node $domainExpr): void
-        {
-            if ($node instanceof FilterExpression && 'trans' === ($node->hasAttribute('twig_callable') ? $node->getAttribute('twig_callable')->getName() : $node->getNode('filter')->getAttribute('value'))) {
-                $arguments = $node->getNode('arguments');
+    {
+        if ($node instanceof FilterExpression && 'trans' === ($node->hasAttribute('twig_callable') ? $node->getAttribute('twig_callable')->getName() : $node->getNode('filter')->getAttribute('value'))) {
+            $arguments = $node->getNode('arguments');
 
-                if ($arguments instanceof EmptyNode) {
-                    $arguments = new Nodes();
-                    $node->setNode('arguments', $arguments);
-                }
+            if ($arguments instanceof EmptyNode) {
+                $arguments = new Nodes();
+                $node->setNode('arguments', $arguments);
+            }
 
-                if ($this->isNamedArguments($arguments)) {
-                    if (!$arguments->hasNode('domain') && !$arguments->hasNode(1)) {
-                        $arguments->setNode('domain', $domainExpr);
-                    }
-                } elseif (!$arguments->hasNode(1)) {
-                    if (!$arguments->hasNode(0)) {
-                        $arguments->setNode(0, new ArrayExpression([], $node->getTemplateLine()));
-                    }
-                    $arguments->setNode(1, $domainExpr);
+            if ($this->isNamedArguments($arguments)) {
+                if (!$arguments->hasNode('domain') && !$arguments->hasNode(1)) {
+                    $arguments->setNode('domain', $domainExpr);
                 }
-            } elseif ($node instanceof TransNode) {
-                if (!$node->hasNode('domain')) {
-                    $node->setNode('domain', $domainExpr);
+            } elseif (!$arguments->hasNode(1)) {
+                if (!$arguments->hasNode(0)) {
+                    $arguments->setNode(0, new ArrayExpression([], $node->getTemplateLine()));
                 }
+                $arguments->setNode(1, $domainExpr);
+            }
+        } elseif ($node instanceof TransNode) {
+            if (!$node->hasNode('domain')) {
+                $node->setNode('domain', $domainExpr);
             }
         }
+    }
 
     public function leaveNode(Node $node, Environment $env): ?Node
     {
